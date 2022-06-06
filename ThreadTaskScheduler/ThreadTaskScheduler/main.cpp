@@ -87,7 +87,7 @@ int main()
     //
     // *******************************************************************************
     
-    SmartThreadPoolBuilder builder;
+    PriorityThreadPoolBuilder builder;
     builder.AddClassifyPool("DefaultPool", 8, 4)
         .AddClassifyPool("CPUBoundPool", 8, 4)
         .AddClassifyPool("IOBoundPool", 64, 32)
@@ -102,7 +102,7 @@ int main()
                 printf("%d\n", j);
                 }, i);
             
-           // pool->ApplyAsync("IOBoundPool", static_cast<TaskPriority>(i), exec_f_p, i);
+            //pool->ApplyAsync("IOBoundPool", static_cast<TaskPriority>(i), exec_f_p, i);
 
         }
     }
@@ -121,7 +121,7 @@ int main()
     auto value = res.get();
     printf("added result: %d\n", value);
 
-    pool->StartAllWorkers();
+    pool->ThreadJoinAllWorkers();
     
 }
 

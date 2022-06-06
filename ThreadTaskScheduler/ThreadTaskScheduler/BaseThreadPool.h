@@ -17,9 +17,10 @@
 #include <chrono>
 
 // localtimer_r
-#include <time.h>
+//#include <time.h>
 
-enum class TaskPriority : unsigned char {
+enum class TaskPriority : unsigned char 
+{
     DEFAULT = 0,
     LOW,
     MEDIUM,
@@ -27,76 +28,74 @@ enum class TaskPriority : unsigned char {
     URGENT,
 };
 
-namespace detail {
-
-    uint8_t g_auto_increment_thread_pool_id = 0;
-
-}
-
-class Task {
+class Task 
+{
 public:
     using TaskType = std::function<void()>;
-    explicit Task(TaskType task, TaskPriority priority)
-        : task_(task), priority_(priority) {
-    }
+    explicit Task(TaskType task_type, TaskPriority priority)
+        : m_taskType(task_type), m_priority(priority) { }
     Task(const Task& other)
-        : task_(other.task_), priority_(other.priority_) {
-    }
-    Task& operator=(const Task& other) {
-        task_ = other.task_;
-        priority_ = other.priority_;
+        : m_taskType(other.m_taskType), m_priority(other.m_priority) {  }
+
+    ~Task() {}
+
+    Task& operator=(const Task& other) 
+    {
+        m_taskType = other.m_taskType;
+        m_priority = other.m_priority;
         return *this;
     }
 
-    bool operator<(const Task& rhs) const {
-        return priority_ < rhs.priority_;
-    }
-    bool operator>(const Task& rhs) const {
-        return priority_ > rhs.priority_;
-    }
+    bool operator<(const Task& rhs) const { return m_priority < rhs.m_priority; }
+    bool operator>(const Task& rhs) const { return m_priority > rhs.m_priority; }
 
-    TaskPriority priority() const { return priority_; }
-    void Run() {
-        task_();
-    }
+    TaskPriority GetPriority() const { return m_priority; }
+    
+    void Run() { m_taskType(); }
 
 private:
-    TaskType task_;
-    TaskPriority priority_;
+    TaskType m_taskType;
+    TaskPriority m_priority;
 };
 
-class TaskPriorityQueue {
+class TaskPriorityQueue 
+{
 public:
     explicit TaskPriorityQueue(const char* queue_name)
-        : queue_name_(queue_name), alive_(true), task_count_(0), pending_task_count_(0) {
-    }
+        : m_queueName(queue_name), m_aAlive(true), m_ulTaskCount(0), m_ulPendingTaskCount(0) { }
+    
     TaskPriorityQueue(TaskPriorityQueue&& other) = delete;
     TaskPriorityQueue(const TaskPriorityQueue&) = delete;
     TaskPriorityQueue& operator=(TaskPriorityQueue&& other) = delete;
     TaskPriorityQueue& operator=(const TaskPriorityQueue&) = delete;
-    ~TaskPriorityQueue() {
-        ClearQueue();
-    }
-    void ClearQueue() {
+    ~TaskPriorityQueue() { ClearQueue(); }
+
+    void ClearQueue() 
+    {
         {
-            std::unique_lock<std::mutex> lock(queue_mtx_);
-            alive_ = false;
+            std::unique_lock<std::mutex> lock(m_queueMtx);
+            m_aAlive = false;
         }
-        queue_cv_.notify_all();
+        m_queueCv.notify_all();
         auto task = dequeue();
         while (task) {
             task->Run();
             task = dequeue();
         }
     }
-    bool empty() const {
-        std::unique_lock<std::mutex> lock(queue_mtx_);
-        return tasks_.empty();
+    
+    bool empty() const 
+    {
+        std::unique_lock<std::mutex> lock(m_queueMtx);
+        return m_pqTasks.empty();
     }
-    std::size_t size() const {
-        std::unique_lock<std::mutex> lock(queue_mtx_);
-        return tasks_.size();
+    
+    std::size_t size() const 
+    {
+        std::unique_lock<std::mutex> lock(m_queueMtx);
+        return m_pqTasks.size();
     }
+    
     template<class F, class... Args>
     auto enqueue(TaskPriority priority, F&& f, Args&&... args) -> std::future<typename std::result_of<F(Args...)>::type> 
     {
@@ -104,75 +103,90 @@ public:
         auto task = std::make_shared< std::packaged_task<ReturnType()> >(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...));
         {
-            std::unique_lock<std::mutex> lock(queue_mtx_);
-            tasks_.emplace([task]() { (*task)(); }, priority);
-            task_count_ += 1;
-            pending_task_count_ += 1;
+            std::unique_lock<std::mutex> lock(m_queueMtx);
+            m_pqTasks.emplace([task]() { (*task)(); }, priority);
+            m_ulTaskCount += 1;
+            m_ulPendingTaskCount += 1;
         }
-        queue_cv_.notify_one();
+        m_queueCv.notify_one();
         return task->get_future();
     }
+
     std::unique_ptr<Task> dequeue() 
     {
-        std::unique_lock<std::mutex> lock(queue_mtx_);
-        bool status = queue_cv_.wait_for(lock, std::chrono::seconds(5), [this] { return !alive_ || !tasks_.empty(); });
-        if (!status || (!alive_ && tasks_.empty())) {
+        std::unique_lock<std::mutex> lock(m_queueMtx);
+        bool bStatus = m_queueCv.wait_for(lock, std::chrono::seconds(5), [this] { return !m_aAlive || !m_pqTasks.empty(); });
+        if (!bStatus || (!m_aAlive && m_pqTasks.empty())) 
+        {
             return nullptr;
         }
-        auto task = std::unique_ptr<Task>{ new Task(std::ref(tasks_.top())) };
-        tasks_.pop();
-        pending_task_count_ -= 1;
+        auto task = std::unique_ptr<Task>{ new Task(std::ref(m_pqTasks.top())) };
+        m_pqTasks.pop();
+        m_ulPendingTaskCount -= 1;
         return task;
     }
-    const char* name() const { return queue_name_.c_str(); }
-    uint64_t task_count() const { return task_count_; }
-    uint64_t pending_task_count() const { return pending_task_count_; }
+    const char* GetName() const { return m_queueName.c_str(); }
+    uint64_t GetTaskCount() const { return m_ulTaskCount; }
+    uint64_t GetPendingTaskCount() const { return m_ulPendingTaskCount; }
 
 private:
-    std::string queue_name_;
-    std::priority_queue<Task> tasks_;
-    mutable std::mutex queue_mtx_;
-    mutable std::condition_variable queue_cv_;
-    std::atomic_bool alive_;
+    std::string m_queueName;
+    std::priority_queue<Task> m_pqTasks;
+    mutable std::mutex m_queueMtx;
+    mutable std::condition_variable m_queueCv;
+    std::atomic_bool m_aAlive;
 
-    uint64_t task_count_;
-    uint64_t pending_task_count_;
+    uint64_t m_ulTaskCount;
+    uint64_t m_ulPendingTaskCount;
 };
 
-class Worker {
+class Worker 
+{
 public:
-    enum class State : unsigned char {
+    enum class State : unsigned char 
+    {
         IDLE = 0,
         BUSY,
         EXITED,
     };
+
     explicit Worker(TaskPriorityQueue* queue)
-        : state_(State::IDLE), completed_task_count_(0) {
-        t_ = std::thread([queue, this]() {
-            while (true) {
-                auto task = queue->dequeue();
-                if (task) {
-                    state_ = State::BUSY;
-                    task->Run();
-                    completed_task_count_ += 1;
+        : m_state(State::IDLE), m_ulCompletedTaskCount(0) 
+    {
+        m_thread = std::thread([queue, this]() 
+            {
+                while (true) 
+                {
+                    auto task = queue->dequeue();
+                    if (task) 
+                    {
+                        m_state = State::BUSY;
+                        task->Run();
+                        m_ulCompletedTaskCount += 1;
+                    }
+                    else 
+                    {
+                        m_state = State::EXITED;
+                        return;
+                    }
                 }
-                else {
-                    state_ = State::EXITED;
-                    return;
-                }
-            }
             });
     }
-    void Work() {
-        if (t_.joinable()) {
-            t_.join();
-        }
+
+    //~Worker() { SetJoinWorker(); }
+
+    void SetJoinWorker() 
+    {
+        if (m_thread.joinable()) 
+            m_thread.join();
+
     }
-    State state() const { return state_; }
-    uint64_t completed_task_count() const { return completed_task_count_; }
+
+    State GetState() const { return m_state; }
+    uint64_t GetCompletedTaskCount() const { return m_ulCompletedTaskCount; }
 
 private:
-    std::thread t_;
-    State state_;
-    uint64_t completed_task_count_;
+    std::thread m_thread;
+    State m_state;
+    uint64_t m_ulCompletedTaskCount;
 };

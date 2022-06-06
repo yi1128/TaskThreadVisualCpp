@@ -1,11 +1,18 @@
 #pragma once
 #include "BaseThreadPool.h"
 
-class ClassifyThreadPool {
+namespace Detail 
+{
+    std::atomic<uint8_t> g_AutoIncrementThreadPool_ID = 0;
+}
+
+class ClassifyThreadPool 
+{
 public:
     ClassifyThreadPool(const char* name, uint16_t capacity)
-        : id_(++detail::g_auto_increment_thread_pool_id), name_(name), capacity_(capacity) {
-        workers_.reserve(capacity);
+        : m_id(++Detail::g_AutoIncrementThreadPool_ID), m_name(name), m_usCapacity(capacity) 
+    {
+        m_vWorkers.reserve(capacity);
         ConnectTaskPriorityQueue();
     }
 
@@ -13,228 +20,272 @@ public:
     ClassifyThreadPool(const ClassifyThreadPool&) = delete;
     ClassifyThreadPool& operator=(ClassifyThreadPool&&) = delete;
     ClassifyThreadPool& operator=(const ClassifyThreadPool&) = delete;
+    
+    ~ClassifyThreadPool() { }
 
-    void InitWorkers(uint16_t count) {
-        for (unsigned char i = 0; i < count && workers_.size() < capacity_; ++i) {
+    void InitWorkers(uint16_t count) 
+    {
+        for (unsigned char i = 0; i < count && m_vWorkers.size() < m_usCapacity; i++) 
+        {
             AddWorker();
         }
     }
-    uint8_t id() const { return id_; }
-    const char* name() const { return name_.c_str(); }
-    uint16_t capacity() const { return capacity_; }
-    uint16_t WorkerCount() const { return static_cast<uint16_t>(workers_.size()); }
-    uint16_t IdleWorkerCount() const {
+
+    uint8_t id() const { return m_id; }
+    uint16_t capacity() const { return m_usCapacity; }
+    const char* GetName() const { return m_name.c_str(); }
+    uint16_t GetWorkerCount() const { return static_cast<uint16_t>(m_vWorkers.size()); }
+   
+    uint16_t GetIdleWorkerCount() const 
+    {
         return GetWorkerStateCount(Worker::State::IDLE);
     }
-    uint16_t BusyWorkerCount() const {
+
+    uint16_t GetBusyWorkerCount() const 
+    {
         return GetWorkerStateCount(Worker::State::BUSY);
     }
-    uint16_t ExitedWorkerCount() const {
+
+    uint16_t GetExitedWorkerCount() const 
+    {
         return GetWorkerStateCount(Worker::State::EXITED);
     }
-    const std::vector<Worker>& workers() const { return workers_; }
-    const std::unique_ptr<TaskPriorityQueue>& task_queue() const { return task_queue_; }
+
+    const std::vector<Worker>& GetWorkers() const { return m_vWorkers; }
+    const std::unique_ptr<TaskPriorityQueue>& GetTaskQueue() const { return m_taskQueue; }
 
 private:
-    friend class SmartThreadPool;
-    void ConnectTaskPriorityQueue() {
-        std::string queue_name = name_ + "-->TaskQueue";
-        task_queue_ = std::unique_ptr<TaskPriorityQueue>{ new TaskPriorityQueue(queue_name.c_str()) };
+    friend class PriorityThreadPool;
+    void ConnectTaskPriorityQueue() 
+    {
+        std::string queueName = m_name + "-->TaskQueue";
+        m_taskQueue = std::unique_ptr<TaskPriorityQueue>{ new TaskPriorityQueue(queueName.c_str()) };
     }
-    void AddWorker() {
-        workers_.emplace_back(task_queue_.get());
+
+    void AddWorker() 
+    {
+        m_vWorkers.emplace_back(m_taskQueue.get());
     }
-    void StartWorkers() {
-        for (auto& worker : workers_) {
-            worker.Work();
+    
+    void ThreadJoinWorkers() 
+    {
+        for (auto& worker : m_vWorkers) 
+        {
+            worker.SetJoinWorker();
         }
     }
-    uint16_t GetWorkerStateCount(Worker::State state) const {
-        uint16_t count = 0;
-        for (auto& worker : workers_) {
-            if (worker.state() == state) {
-                count += 1;
+
+    uint16_t GetWorkerStateCount(Worker::State state) const 
+    {
+        uint16_t usCount = 0;
+        for (auto& worker : m_vWorkers) 
+        {
+            if (worker.GetState() == state) 
+            {
+                usCount += 1;
             }
         }
-        return count;
+        return usCount;
     }
-    uint8_t id_;
-    std::string name_;
-    uint16_t capacity_;
-    std::vector<Worker> workers_;
-    std::unique_ptr<TaskPriorityQueue> task_queue_;
+
+    uint8_t m_id;
+    std::string m_name;
+    uint16_t m_usCapacity;
+    std::vector<Worker> m_vWorkers;
+    std::unique_ptr<TaskPriorityQueue> m_taskQueue;
 };
 
-class SmartThreadPool {
+class PriorityThreadPool 
+{
 public:
-    SmartThreadPool(SmartThreadPool&&) = delete;
-    SmartThreadPool(const SmartThreadPool&) = delete;
-    SmartThreadPool& operator=(SmartThreadPool&&) = delete;
-    SmartThreadPool& operator=(const SmartThreadPool&) = delete;
+    PriorityThreadPool(PriorityThreadPool&&) = delete;
+    PriorityThreadPool(const PriorityThreadPool&) = delete;
+    PriorityThreadPool& operator=(PriorityThreadPool&&) = delete;
+    PriorityThreadPool& operator=(const PriorityThreadPool&) = delete;
+    
+    // 소멸자
+    ~PriorityThreadPool() { ThreadJoinAllWorkers(); }
 
     template<class F, class... Args>
     auto ApplyAsync(const char* pool_name, TaskPriority priority,
-        F&& f, Args&&... args) -> std::future<typename std::result_of<F(Args...)>::type> {
-        auto& pool = pools_.at(pool_name);
-        auto res = pool->task_queue()->enqueue(priority, f, args...);
-        if (pool->task_queue()->size() >= pool->WorkerCount()
-            && pool->WorkerCount() < pool->capacity()) {
+        F&& f, Args&&... args) -> std::future<typename std::result_of<F(Args...)>::type> 
+    {
+        auto& pool = m_pools.at(pool_name);
+        auto res = pool->GetTaskQueue()->enqueue(priority, f, args...);
+        if (pool->GetTaskQueue()->size() >= pool->GetWorkerCount()
+            && pool->GetWorkerCount() < pool->capacity()) 
+        {
             pool->AddWorker();
         }
+        
         return res;
     }
-    void StartAllWorkers() {
-        for (auto&& pool : pools_) {
-            pool.second->StartWorkers();
+
+    void ThreadJoinAllWorkers() 
+    {
+        for (auto&& pool : m_pools) 
+        {
+            pool.second->ThreadJoinWorkers();
         }
     }
 
 private:
-    friend class SmartThreadPoolBuilder;
+    friend class PriorityThreadPoolBuilder;
     friend class Monitor;
-    SmartThreadPool() {}
-    std::map<std::string, std::unique_ptr<ClassifyThreadPool> > pools_;
+    PriorityThreadPool() {}
+    std::map<std::string, std::unique_ptr<ClassifyThreadPool>> m_pools;
 };
 
-class Monitor {
+class Monitor 
+{
 public:
-    void StartMonitoring(const SmartThreadPool& pool, const std::chrono::duration<int>& monitor_second_period) {
-        t_ = std::move(std::thread([&pool, &monitor_second_period, this]() {
-            while (true) {
-                std::this_thread::sleep_for(monitor_second_period);
-                for (auto&& pool_map : pool.pools_) {
-                    auto& classify_pool = *pool_map.second.get();
-                    MonitorClassifyPool(classify_pool);
-                }
-
-                char now[128];
-                std::time_t curTime = std::time(NULL);
-                struct tm tmCurTime;
-
-                errno_t e = localtime_s(&tmCurTime, &curTime);
-                if (e != false)
-                    return;
-
-                std::strftime(now, sizeof(now), "%F %T", &tmCurTime);
-                std::string now_str(now);
-
-                std::stringstream monitor_log;
-                auto cmp = [](const std::string& s1, const std::string& s2) { return s1.size() < s2.size(); };
-                size_t max_row_msg_length = 0;
-
-                for (size_t i = 0; i < pool_msgs_.size(); ++i) {
-                    int max_pool_msg_length = std::max_element(pool_msgs_.begin(), pool_msgs_.end(), cmp)->length();
-                    int max_workers_msg_length = std::max_element(workers_msgs_.begin(), workers_msgs_.end(), cmp)->length();
-                    max_pool_msg_length += 2;
-                    max_workers_msg_length += 2;
-                    std::stringstream row_log;
-                    row_log << std::left << std::setw(max_pool_msg_length) << pool_msgs_.at(i)
-                        << std::left << std::setw(max_workers_msg_length) << workers_msgs_.at(i)
-                        << std::left << tasks_msgs_.at(i) << std::endl;
-                    if (row_log.str().length() > max_row_msg_length) {
-                        max_row_msg_length = row_log.str().length();
+    void StartMonitoring(const PriorityThreadPool& pool, const std::chrono::duration<int>& monitor_second_period) 
+    {
+        m_thread = std::move(std::thread([&pool, &monitor_second_period, this]() 
+            {
+                while (true) 
+                {
+                    std::this_thread::sleep_for(monitor_second_period);
+                    for (auto&& poolMap : pool.m_pools) 
+                    {
+                        auto& classifyPool = *poolMap.second.get();
+                        MonitorClassifyPool(classifyPool);
                     }
-                    monitor_log << row_log.str();
+
+                    char now[128];
+                    std::time_t curTime = std::time(NULL);
+                    struct tm tmCurTime;
+
+                    errno_t e = localtime_s(&tmCurTime, &curTime);
+                    if (e != false)
+                        return;
+
+                    std::strftime(now, sizeof(now), "%F %T", &tmCurTime);
+                    std::string nowStr(now);
+
+                    std::stringstream monitorLog;
+                    auto cmp = [](const std::string& s1, const std::string& s2) { return s1.size() < s2.size(); };
+                    size_t ulMaxRowMsgLength = 0;
+
+                    for (size_t i = 0; i < m_vPoolMsgs.size(); ++i) 
+                    {
+                        int nMaxPoolMsgLength = std::max_element(m_vPoolMsgs.begin(), m_vPoolMsgs.end(), cmp)->length();
+                        int nMaxWorkersMsgLength = std::max_element(m_vWorkersMsgs.begin(), m_vWorkersMsgs.end(), cmp)->length();
+                        nMaxPoolMsgLength += 2;
+                        nMaxWorkersMsgLength += 2;
+                        std::stringstream rowLog;
+                        rowLog << std::left << std::setw(nMaxPoolMsgLength) << m_vPoolMsgs.at(i)
+                            << std::left << std::setw(nMaxWorkersMsgLength) << m_vWorkersMsgs.at(i)
+                            << std::left << m_vTasksMsgs.at(i) << std::endl;
+
+                        if (rowLog.str().length() > ulMaxRowMsgLength) 
+                        {
+                            ulMaxRowMsgLength = rowLog.str().length();
+                        }
+                        monitorLog << rowLog.str();
+                    }
+
+                    int nHeadFrontLength = (ulMaxRowMsgLength - nowStr.length()) / 2;
+                    int nHeadBackLength = ulMaxRowMsgLength - nowStr.length() - nHeadFrontLength;
+                
+                    // 상태 메세지
+                    std::stringstream prettyMsg;
+                    prettyMsg << "/" << std::setfill('-') << std::setw(nHeadFrontLength)
+                        << "" << now << std::setfill('-') << std::setw(nHeadBackLength)
+                        << "\\" << std::endl
+                        << monitorLog.str()
+                        << "\\" << std::setfill('-') << std::setw(ulMaxRowMsgLength - 1)
+                        << "/" << std::endl;
+                
+                    // 상태 메세지 출력
+                    std::cerr << prettyMsg.str();
+
+                    m_vPoolMsgs.clear();
+                    m_vWorkersMsgs.clear();
+                    m_vTasksMsgs.clear();
                 }
-
-                int head_front_length = (max_row_msg_length - now_str.length()) / 2;
-                int head_back_length = max_row_msg_length - now_str.length() - head_front_length;
-                
-                // 상태 메세지
-                std::stringstream pretty_msg;
-                pretty_msg << "/" << std::setfill('-') << std::setw(head_front_length)
-                    << "" << now << std::setfill('-') << std::setw(head_back_length)
-                    << "\\" << std::endl
-                    << monitor_log.str()
-                    << "\\" << std::setfill('-') << std::setw(max_row_msg_length - 1)
-                    << "/" << std::endl;
-                
-                // 상태 메세지 출력
-                std::cerr << pretty_msg.str();
-
-                pool_msgs_.clear();
-                workers_msgs_.clear();
-                tasks_msgs_.clear();
-            }
             }));
 
-        t_.detach();
+        m_thread.detach();
     }
 
 private:
-    friend class SmartThreadPoolBuilder;
+    friend class PriorityThreadPoolBuilder;
     Monitor() {}
     void MonitorClassifyPool(const ClassifyThreadPool& classify_pool) {
-        uint16_t busy_worker = classify_pool.BusyWorkerCount();
-        uint16_t idle_worker = classify_pool.IdleWorkerCount();
-        uint16_t exited_worker = classify_pool.ExitedWorkerCount();
-        uint16_t total_worker = classify_pool.capacity();
-        uint16_t assignable_worker = total_worker - classify_pool.WorkerCount();
+        uint16_t usBusyWorker = classify_pool.GetBusyWorkerCount();
+        uint16_t usIdleWorker = classify_pool.GetIdleWorkerCount();
+        uint16_t usExitedWorker = classify_pool.GetExitedWorkerCount();
+        uint16_t usTotalWorker = classify_pool.capacity();
+        uint16_t usAssignableWorker = usTotalWorker - classify_pool.GetWorkerCount();
 
-        uint64_t total_task = classify_pool.task_queue()->task_count();
-        uint64_t running_task = classify_pool.BusyWorkerCount();
-        uint64_t pending_task = classify_pool.task_queue()->pending_task_count();
-        uint64_t completed_task = total_task - running_task - pending_task;
+        uint64_t ulTotalTask = classify_pool.GetTaskQueue()->GetTaskCount();
+        uint64_t ulRunningTask = classify_pool.GetBusyWorkerCount();
+        uint64_t ulPendingTask = classify_pool.GetTaskQueue()->GetPendingTaskCount();
+        uint64_t ulCompletedTask = ulTotalTask - ulRunningTask - ulPendingTask;
 
-        char pool_msg[64];
-        char workers_msg[128];
-        char tasks_msg[128];
-        snprintf(pool_msg, static_cast <size_t>(sizeof(pool_msg)), " ~ ThreadPool:%s", classify_pool.name());
-        snprintf(workers_msg, static_cast <size_t>(sizeof(workers_msg)), "Workers[Busy:%u, Idle:%u, Exited:%u, Assignable:%u, Total:%u]",
-            static_cast <unsigned long>(busy_worker), 
-            static_cast <unsigned long>(idle_worker), 
-            static_cast <unsigned long>(exited_worker), 
-            static_cast <unsigned long>(assignable_worker), 
-            static_cast <unsigned long>(total_worker));
-        snprintf(tasks_msg, static_cast<size_t>(sizeof(tasks_msg)), "Tasks[Running:%lu, Waiting:%lu, Completed:%lu, Total:%lu]",
-            static_cast <unsigned long>(running_task), 
-            static_cast <unsigned long>(pending_task), 
-            static_cast <unsigned long>(completed_task), 
-            static_cast <unsigned long>(total_task));
+        char chPoolMsg[64];
+        char chWorkersMsg[128];
+        char chTasksMsg[128];
 
-        pool_msgs_.emplace_back(pool_msg);
-        workers_msgs_.emplace_back(workers_msg);
-        tasks_msgs_.emplace_back(tasks_msg);
+        snprintf(chPoolMsg, static_cast <size_t>(sizeof(chPoolMsg)), " ~ ThreadPool:%s", classify_pool.GetName());
+        snprintf(chWorkersMsg, static_cast <size_t>(sizeof(chWorkersMsg)), "Workers[Busy:%u, Idle:%u, Exited:%u, Assignable:%u, Total:%u]",
+            static_cast <unsigned long>(usBusyWorker), 
+            static_cast <unsigned long>(usIdleWorker), 
+            static_cast <unsigned long>(usExitedWorker), 
+            static_cast <unsigned long>(usAssignableWorker), 
+            static_cast <unsigned long>(usTotalWorker));
+        snprintf(chTasksMsg, static_cast<size_t>(sizeof(chTasksMsg)), "Tasks[Running:%lu, Waiting:%lu, Completed:%lu, Total:%lu]",
+            static_cast <unsigned long>(ulRunningTask), 
+            static_cast <unsigned long>(ulPendingTask), 
+            static_cast <unsigned long>(ulCompletedTask), 
+            static_cast <unsigned long>(ulTotalTask));
+
+        m_vPoolMsgs.emplace_back(chPoolMsg);
+        m_vWorkersMsgs.emplace_back(chWorkersMsg);
+        m_vTasksMsgs.emplace_back(chTasksMsg);
     }
 
-    std::thread t_;
-    std::vector<std::string> pool_msgs_;
-    std::vector<std::string> workers_msgs_;
-    std::vector<std::string> tasks_msgs_;
+    std::thread m_thread;
+    std::vector<std::string> m_vPoolMsgs;
+    std::vector<std::string> m_vWorkersMsgs;
+    std::vector<std::string> m_vTasksMsgs;
 };
 
-class SmartThreadPoolBuilder {
+class PriorityThreadPoolBuilder {
 public:
-    SmartThreadPoolBuilder()
-        : smart_pool_(new SmartThreadPool), enable_monitor_(false), monitor_second_period_(std::chrono::seconds(60)) {
+    PriorityThreadPoolBuilder()
+        : m_priorityPool(new PriorityThreadPool), m_bEnableMonitor(false), m_monitorSecondPeriod(std::chrono::seconds(60)) {
     }
 
-    SmartThreadPoolBuilder(SmartThreadPoolBuilder&&) = delete;
-    SmartThreadPoolBuilder(const SmartThreadPoolBuilder&) = delete;
-    SmartThreadPoolBuilder& operator=(SmartThreadPoolBuilder&&) = delete;
-    SmartThreadPoolBuilder& operator=(const SmartThreadPoolBuilder&) = delete;
+    PriorityThreadPoolBuilder(PriorityThreadPoolBuilder&&) = delete;
+    PriorityThreadPoolBuilder(const PriorityThreadPoolBuilder&) = delete;
+    PriorityThreadPoolBuilder& operator=(PriorityThreadPoolBuilder&&) = delete;
+    PriorityThreadPoolBuilder& operator=(const PriorityThreadPoolBuilder&) = delete;
 
-    SmartThreadPoolBuilder& AddClassifyPool(const char* pool_name, uint8_t capacity, uint8_t init_size) {
+    PriorityThreadPoolBuilder& AddClassifyPool(const char* pool_name, uint8_t capacity, uint8_t init_size) {
         auto pool = new ClassifyThreadPool(pool_name, capacity);
         pool->InitWorkers(init_size);
-        smart_pool_->pools_.emplace(pool_name, pool);
+        m_priorityPool->m_pools.emplace(pool_name, pool);
         return *this;
     }
-    SmartThreadPoolBuilder& EnableMonitor(const std::chrono::duration<int>& second_period = std::chrono::seconds(60)) {
-        enable_monitor_ = true;
-        monitor_second_period_ = second_period;
+    PriorityThreadPoolBuilder& EnableMonitor(const std::chrono::duration<int>& second_period = std::chrono::seconds(60)) {
+        m_bEnableMonitor = true;
+        m_monitorSecondPeriod = second_period;
         return *this;
     }
-    std::unique_ptr<SmartThreadPool> BuildAndInit() {
-        if (enable_monitor_) {
+    std::unique_ptr<PriorityThreadPool> BuildAndInit() 
+    {
+        if (m_bEnableMonitor) 
+        {
             auto monitor = new Monitor();
-            monitor->StartMonitoring(*smart_pool_.get(), monitor_second_period_);
+            monitor->StartMonitoring(*m_priorityPool.get(), m_monitorSecondPeriod);
         }
-        return std::move(smart_pool_);
+        return std::move(m_priorityPool);
     }
 
 private:
-    std::unique_ptr<SmartThreadPool> smart_pool_;
-    bool enable_monitor_;
-    std::chrono::duration<int> monitor_second_period_;
+    std::unique_ptr<PriorityThreadPool> m_priorityPool;
+    bool m_bEnableMonitor;
+    std::chrono::duration<int> m_monitorSecondPeriod;
 };
