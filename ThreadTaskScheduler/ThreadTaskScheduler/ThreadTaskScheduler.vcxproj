@@ -148,6 +148,8 @@
     <ClInclude Include="BaseThreadPool.h" />
     <ClInclude Include="BasicThreadPool.h" />
     <ClInclude Include="PriorityThreadPool.h" />
+    <ClInclude Include="ReaderWriterLock.h" />
+    <ClInclude Include="ThreadSafeMap.h" />
     <ClInclude Include="ThreadTaskScheduler.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

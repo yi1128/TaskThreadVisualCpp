@@ -1,4 +1,16 @@
 #pragma once
+/*
+    PriorityThreadPool.h
+    std::thread 기반 PriorityThreadPool
+    BaseThreadPool.h 기반
+    
+    class 목록
+    class ClassiftyThreadPool
+    class PriorityThreadPool
+    class Monitor - ThreadPool 모니터링용 Thread
+    class PriorityThreadPoolBuilder - PriorityThreadPool을 만들기 위한 builder
+*/
+
 #include "BaseThreadPool.h"
 
 namespace Detail 

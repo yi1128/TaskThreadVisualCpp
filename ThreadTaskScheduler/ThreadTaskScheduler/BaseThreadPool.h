@@ -1,4 +1,15 @@
 #pragma once
+/*
+    BaseThreadPool.h
+    std:: 기반 Task, TaskPriorityQueue, Worker(Thread 관리)
+    PriorityThreadPool.h 기반이 되는 헤더
+    
+    class 목록
+    class Task
+    class TaskPriorityQueue
+    class Worker
+*/
+
 
 #include <cstdint>
 #include <ctime>

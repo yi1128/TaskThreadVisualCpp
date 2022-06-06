@@ -2,8 +2,9 @@
 #include <iostream>
 #include <string>
 
-#define BASIC_THREAD_POOL
-#define PRIORIRY_THREAD_POOL
+//#define BASIC_THREAD_POOL
+//#define PRIORIRY_THREAD_POOL
+#define THREAD_SAFE_MAP
 
 #ifdef BASIC_THREAD_POOL
 #include "BasicThreadPool.h"
@@ -24,7 +25,7 @@ public:
 
     int32_t data_;
 };
-/*
+
 int32_t main(int32_t argc, char** argv) {
     CBasicThreadPool tp(3);
     T t;
@@ -39,7 +40,7 @@ int32_t main(int32_t argc, char** argv) {
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     return 0;
 }
-*/
+
 #endif
 
 #ifdef PRIORIRY_THREAD_POOL
@@ -124,5 +125,25 @@ int main()
     pool->ThreadJoinAllWorkers();
     
 }
+#endif
 
+#ifdef THREAD_SAFE_MAP
+#include "ThreadSafeMap.h"
+struct dataStruct
+{
+    int x;
+    int y;
+    int z;
+};
+int main()
+{
+    int Key = 1;
+    dataStruct n;
+    n.x = 1;
+    n.y = 2;
+    n.z = 3;
+    ThreadSafe::tsmap<int, dataStruct> _tsmap;
+    _tsmap.emplace(std::pair<int, dataStruct>(Key, n));
+
+}
 #endif
