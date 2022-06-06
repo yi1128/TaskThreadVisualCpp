@@ -34,6 +34,7 @@
 # visual studio 제외
 ThreadTaskScheduler/Debug/
 ThreadTaskScheduler/ThreadTaskScheduler/Debug/
+ThreadTaskScheduler/.vs/
 *.pdb
 *.ilk
 *.idb
