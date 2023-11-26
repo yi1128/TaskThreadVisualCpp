@@ -14,11 +14,15 @@
 #include <chrono>
 #include <numeric>
 #include <execution>
-
+/*
+* 문제점
+* BasicThreadPool 은 빠르지만 못돌리는 끝단쪽이 안돌아가고 있음 
+* 대략 10000개 기준 500개의 task가 돌지않음
+*/
 
 using namespace std;
 
-const int num_threads = 8;
+const int num_threads = 3;
 
 void exec_f_g() {
     while (true) std::cout << "exec_f_g is called" << std::endl;
@@ -37,6 +41,10 @@ public:
     int32_t data_;
 };
 
+#define DATA_SIZE 10000
+int t_count = 0;
+int t_data[DATA_SIZE] = { 0, };
+static std::mutex mtx_;
 void func_void_int(int n) {
     bool prime = true;
     if (n < 2)
@@ -44,7 +52,10 @@ void func_void_int(int n) {
     for (int i = 2; i < n; i++)
         if (n % i == 0)
             prime = false;
-
+    {
+        std::lock_guard<std::mutex> lg(mtx_);
+        t_data[t_count++] = 1;
+    }
     //cout << n << ": " << (prime ? "Prime" : "Composite") << endl;
 }
 
@@ -52,7 +63,7 @@ void test_void_int() {
     CBasicThreadPool p(num_threads);
     vector<future<void>> f;
     int count = 0;
-    for (int i = 0; i < 10000; i++)
+    for (int i = 0; i < DATA_SIZE; i++)
         p.push(func_void_int, i);
     /*
     for (auto i = f.begin(); i != f.end(); i++)
@@ -87,7 +98,19 @@ int32_t main(int32_t argc, char** argv) {
     std::cout << "Algorithm Time span : " << time_span.count() << std::endl;
 
     // 스레드가 실행될 때까지의 대기 시간이 필요
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    //std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    for (int i = 0; i < DATA_SIZE; i++)
+    {
+        if(t_data[i] != 1)
+            cout << i << endl;
+    }
+    cout << "done" << endl;
+    for (;;)
+    {
+        //std::this_thread::sleep_for(std::chrono::seconds(500));
+        std::this_thread::yield();
+    }
     return 0;
 }
 
