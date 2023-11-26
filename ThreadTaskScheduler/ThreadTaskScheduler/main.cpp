@@ -2,12 +2,23 @@
 #include <iostream>
 #include <string>
 
-//#define BASIC_THREAD_POOL
+
+
+#define BASIC_THREAD_POOL
 //#define PRIORIRY_THREAD_POOL
-#define THREAD_SAFE_MAP
+//#define THREAD_SAFE_MAP
 
 #ifdef BASIC_THREAD_POOL
 #include "BasicThreadPool.h"
+
+#include <chrono>
+#include <numeric>
+#include <execution>
+
+
+using namespace std;
+
+const int num_threads = 8;
 
 void exec_f_g() {
     while (true) std::cout << "exec_f_g is called" << std::endl;
@@ -26,7 +37,36 @@ public:
     int32_t data_;
 };
 
+void func_void_int(int n) {
+    bool prime = true;
+    if (n < 2)
+        prime = false;
+    for (int i = 2; i < n; i++)
+        if (n % i == 0)
+            prime = false;
+
+    //cout << n << ": " << (prime ? "Prime" : "Composite") << endl;
+}
+
+void test_void_int() {
+    CBasicThreadPool p(num_threads);
+    vector<future<void>> f;
+    int count = 0;
+    for (int i = 0; i < 10000; i++)
+        p.push(func_void_int, i);
+    /*
+    for (auto i = f.begin(); i != f.end(); i++)
+    {
+        count++;
+        i->get();
+    }
+    */
+    //std::cout << count << std::endl;
+}
+
+
 int32_t main(int32_t argc, char** argv) {
+    /*
     CBasicThreadPool tp(3);
     T t;
     t.data_ = 1314;
@@ -35,6 +75,16 @@ int32_t main(int32_t argc, char** argv) {
     
     tp.push(exec_f_g);
     tp.push(exec_f_p, 2);
+    */
+
+    std::chrono::system_clock::time_point start = std::chrono::system_clock::now();
+    test_void_int();
+    std::chrono::system_clock::time_point end = std::chrono::system_clock::now();
+
+    std::chrono::duration<double> time_span =
+        std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+    std::cout << "Algorithm Time span : " << time_span.count() << std::endl;
 
     // 스레드가 실행될 때까지의 대기 시간이 필요
     std::this_thread::sleep_for(std::chrono::milliseconds(500));

@@ -31,7 +31,7 @@ template <typename T>
 void
 CThreadQueue<T>::tqPush(const T& t) 
 {
-    std::cerr << "std::queue push" << std::endl;
+    //std::cerr << "std::queue push" << std::endl;
     std::lock_guard<std::mutex> lock(m_mutex);
     m_queue.emplace(t);
 }
@@ -41,7 +41,7 @@ bool
 CThreadQueue<T>::tqPop(T* const t) 
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    std::cerr << m_queue.size() << std::endl;
+    //std::cerr << m_queue.size() << std::endl;
     if (m_queue.empty()) 
         return false;
 
